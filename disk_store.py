@@ -19,11 +19,13 @@ Typical usage example:
     # it also supports dictionary style API too:
     disk["hamlet"] = "shakespeare"
 """
-import os.path
+import logging
 import time
 import typing
 
-from format import encode_kv, decode_kv, decode_header
+from format import encode_kv, decode_kv, decode_header, HEADER_SIZE
+
+LOGGER = logging.getLogger(__name__)
 
 
 # DiskStorage is a Log-Structured Hash Table as described in the BitCask paper. We
@@ -64,16 +66,49 @@ class DiskStorage:
     """
 
     def __init__(self, file_name: str = "data.db"):
-        raise NotImplementedError
+        self.fw = open(file_name, "ab")
+        self.fr = open(file_name, "rb")
+        self.keydir = self._load_keydir(self.fr)
+
+    @staticmethod
+    def _load_keydir(f: typing.BinaryIO) -> typing.Dict[str, typing.Tuple[int, int]]:
+        t = time.time()
+        n_records = 0
+
+        keydir = {}
+        offset, header = f.tell(), f.read(HEADER_SIZE)
+
+        while header:
+            _, ksz, vsz = decode_header(header)
+            key = f.read(ksz).decode("utf-8")
+            _ = f.read(vsz)
+            keydir[key] = (offset, HEADER_SIZE + ksz + vsz)
+            offset, header = f.tell(), f.read(HEADER_SIZE)
+            n_records += 1
+
+        LOGGER.info(f"Loaded {(n_records / 1e6):.1f}M keydir records in {(time.time() - t):.2f}s")
+
+        return keydir
+
 
     def set(self, key: str, value: str) -> None:
-        raise NotImplementedError
+        timestamp = int(time.time())
+        size, data = encode_kv(timestamp, key, value)
+        self.keydir[key] = (self.fw.tell(), size)
+        self.fw.write(data)
+        self.fw.flush()
 
     def get(self, key: str) -> str:
-        raise NotImplementedError
+        if key not in self.keydir:
+            return ""
+        offset, size = self.keydir[key]
+        self.fr.seek(offset)
+        _, _, value = decode_kv(self.fr.read(size))
+        return value
 
     def close(self) -> None:
-        raise NotImplementedError
+        self.fw.close()
+        self.fr.close()
 
     def __setitem__(self, key: str, value: str) -> None:
         return self.set(key, value)

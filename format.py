@@ -36,7 +36,7 @@ For the workshop, the functions will have the following signature:
     def decode_kv(data: bytes) -> tuple[int, str, str]
 """
 import struct
-
+from typing import BinaryIO
 
 HEADER_FORMAT = ">III"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
@@ -61,7 +61,7 @@ def encode_kv(timestamp: int, key: str, value: str) -> tuple[int, bytes]:
 
 
 def decode_kv(data: bytes) -> tuple[int, str, str]:
-    timestamp, ksz, vsz = struct.unpack_from(HEADER_FORMAT, data)
+    timestamp, ksz, vsz = decode_header(data[:HEADER_SIZE])
     bkey, bvalue = struct.unpack_from(
         VALUE_FORMAT.format(ksz=ksz, vsz=vsz), data, offset=HEADER_SIZE
     )
